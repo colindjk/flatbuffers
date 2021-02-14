@@ -29,6 +29,7 @@
 //! (On OSX, you can install FlatBuffers from `HEAD` with the Homebrew package manager.)
 
 mod builder;
+mod buffer;
 mod endian_scalar;
 mod follow;
 mod get_root;
