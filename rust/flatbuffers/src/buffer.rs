@@ -3,7 +3,9 @@ use std::ops::{Deref, DerefMut, Range};
 /// The underlying buffer that is used by a flexbuffer Reader. 
 ///
 /// This allows for custom buffer implementations as long as they can be viewed as a &[u8].
-pub trait Buffer: Deref<Target = [u8]> + Sized {
+///
+/// TODO(colindjk) Before merge, remove Clone and do manually.
+pub trait Buffer: Deref<Target = [u8]> + Sized + Clone {
     // The `BufferString` allows for a buffer to return a custom string which will have the
     // lifetime of the underlying buffer. A simple `std::str::from_utf8` wouldn't work since that
     // returns a &str, which is then owned by the callee (cannot be returned from a function).
@@ -13,7 +15,7 @@ pub trait Buffer: Deref<Target = [u8]> + Sized {
     /// A BufferString which will live at least as long as the Buffer itself.
     ///
     /// Must be valid UTF-8, and only generated from the `buffer_str` function Result.
-    type BufferString: Deref<Target = str> + Sized;
+    type BufferString: Deref<Target = str> + Sized + Clone;
 
     /// This method returns an instance of type Self. This allows for lifetimes
     /// to be tracked in cases of deserialization. 
@@ -77,7 +79,18 @@ impl<'de> Buffer for &'de [u8] {
 /// Mutable version of a buffer. Allows for mutations of the buffers itself.
 ///
 /// TODO(colindjk) How can this be done safely?
-trait BufferMut: Buffer + DerefMut<Target = [u8]> + Sized {} 
+pub trait BufferMut: DerefMut<Target = [u8]> + Sized {
+    type Buffer: Buffer;
 
-impl<B> BufferMut for B where B: Buffer + DerefMut<Target = [u8]> {}
+    /// Freezes the buffer so that it is no longer mutable.
+    fn freeze(self) -> Self::Buffer;
+}
+
+impl<'de> BufferMut for &'de mut [u8] {
+    type Buffer = &'de [u8];
+
+    fn freeze(self) -> Self::Buffer {
+        self
+    }
+}
 
