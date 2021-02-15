@@ -271,7 +271,7 @@ impl<B: Buffer, T: Follow<B>> Follow<B> for SkipRootOffset<T> {
 /// FileIdentifier is used by Follow to traverse a FlatBuffer: the pointer is
 /// dereferenced into a byte slice, whose bytes are the file identifer value.
 pub struct FileIdentifier;
-impl<'a, B: Buffer> Follow<B> for FileIdentifier {
+impl<B: Buffer> Follow<B> for FileIdentifier {
     type Inner = B;
     #[inline(always)]
     fn follow(buf: B, loc: usize) -> Self::Inner {
