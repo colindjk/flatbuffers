@@ -22,6 +22,7 @@ use std::marker::PhantomData;
 use std::ptr::write_bytes;
 use std::slice::from_raw_parts;
 
+use crate::buffer::Buffer;
 use crate::endian_scalar::{emplace_scalar, read_scalar_at};
 use crate::primitives::*;
 use crate::push::{Push, PushAlignment};
@@ -231,7 +232,11 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     ///
     /// Asserts that the builder is in a nested state.
     #[inline]
-    pub fn end_vector<T: Push>(&mut self, num_elems: usize) -> WIPOffset<Vector<'fbb, T>> {
+    pub fn end_vector<B, T>(&mut self, num_elems: usize) -> WIPOffset<Vector<B, T>>
+        where
+            B: Buffer,
+            T: Push,
+    {
         self.assert_nested("end_vector");
         self.nested = false;
         let o = self.push::<UOffsetT>(num_elems as UOffsetT);
@@ -309,10 +314,10 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// always safe, on any platform: bool, u8, i8, and any
     /// FlatBuffers-generated struct.
     #[inline]
-    pub fn create_vector_direct<'a: 'b, 'b, T: SafeSliceAccess + Push + Sized + 'b>(
+    pub fn create_vector_direct<'a: 'b, 'b, B: Buffer, T: SafeSliceAccess + Push + Sized + 'b>(
         &'a mut self,
         items: &'b [T],
-    ) -> WIPOffset<Vector<'fbb, T>> {
+    ) -> WIPOffset<Vector<B, T>> {
         self.assert_not_nested(
             "create_vector_direct can not be called when a table or vector is under construction",
         );
@@ -334,10 +339,12 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// Speed-sensitive users may wish to reduce memory usage by creating the
     /// vector manually: use `start_vector`, `push`, and `end_vector`.
     #[inline]
-    pub fn create_vector_of_strings<'a, 'b>(
+    pub fn create_vector_of_strings<'a, 'b, B>(
         &'a mut self,
         xs: &'b [&'b str],
-    ) -> WIPOffset<Vector<'fbb, ForwardsUOffset<&'fbb str>>> {
+    ) -> WIPOffset<Vector<B, ForwardsUOffset<&'a str>>>
+        where B: Buffer
+    {
         self.assert_not_nested("create_vector_of_strings can not be called when a table or vector is under construction");
         // internally, smallvec can be a stack-allocated or heap-allocated vector:
         // if xs.len() > N_SMALLVEC_STRING_VECTOR_CAPACITY then it will overflow to the heap.
@@ -360,10 +367,14 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// Speed-sensitive users may wish to reduce memory usage by creating the
     /// vector manually: use `start_vector`, `push`, and `end_vector`.
     #[inline]
-    pub fn create_vector<'a: 'b, 'b, T: Push + Copy + 'b>(
+    pub fn create_vector<'a: 'b, 'b, B, T>(
         &'a mut self,
         items: &'b [T],
-    ) -> WIPOffset<Vector<'fbb, T::Output>> {
+    ) -> WIPOffset<Vector<B, T::Output>>
+        where
+            T: Push + Copy + 'b,
+            B: Buffer,
+    {
         let elem_size = T::size();
         self.align(items.len() * elem_size, T::alignment().max_of(SIZE_UOFFSET));
         for i in (0..items.len()).rev() {
@@ -377,10 +388,10 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     /// Speed-sensitive users may wish to reduce memory usage by creating the
     /// vector manually: use `start_vector`, `push`, and `end_vector`.
     #[inline]
-    pub fn create_vector_from_iter<T: Push + Copy>(
+    pub fn create_vector_from_iter<B: Buffer, T: Push + Copy>(
         &mut self,
         items: impl ExactSizeIterator<Item = T> + DoubleEndedIterator,
-    ) -> WIPOffset<Vector<'fbb, T::Output>> {
+    ) -> WIPOffset<Vector<B, T::Output>> {
         let elem_size = T::size();
         let len = items.len();
         self.align(len * elem_size, T::alignment().max_of(SIZE_UOFFSET));
@@ -408,6 +419,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     pub fn unfinished_data(&self) -> &[u8] {
         &self.owned_buf[self.head..]
     }
+
     /// Get the byte slice for the data that has been written after a call to
     /// one of the `finish` functions.
     #[inline]
@@ -415,6 +427,7 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
         self.assert_finished("finished_bytes cannot be called when the buffer is not yet finished");
         &self.owned_buf[self.head..]
     }
+
     /// Assert that a field is present in the just-finished Table.
     ///
     /// This is somewhat low-level and is mostly used by the generated code.
@@ -581,7 +594,9 @@ impl<'fbb> FlatBufferBuilder<'fbb> {
     }
 
     #[inline]
-    fn find_duplicate_stored_vtable_revloc(&self, needle: VTable) -> Option<UOffsetT> {
+    fn find_duplicate_stored_vtable_revloc<B>(&self, needle: VTable<B>) -> Option<UOffsetT>
+        where B: Buffer
+    {
         for &revloc in self.written_vtable_revpos.iter().rev() {
             let o = VTable::init(
                 &self.owned_buf[..],

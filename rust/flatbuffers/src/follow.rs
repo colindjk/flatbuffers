@@ -16,6 +16,8 @@
 
 use std::marker::PhantomData;
 
+use crate::buffer::Buffer;
+
 /// Follow is a trait that allows us to access FlatBuffers in a declarative,
 /// type safe, and fast way. They compile down to almost no code (after
 /// optimizations). Conceptually, Follow lifts the offset-based access
@@ -27,29 +29,32 @@ use std::marker::PhantomData;
 /// Writing a new Follow implementation primarily involves deciding whether
 /// you want to return data (of the type Self::Inner) or do you want to
 /// continue traversing the FlatBuffer.
-pub trait Follow<'buf> {
+pub trait Follow<B: Buffer> {
     type Inner;
-    fn follow(buf: &'buf [u8], loc: usize) -> Self::Inner;
+    // TODO(colindjk) is removing the lifetime here okay?
+    fn follow(buf: B, loc: usize) -> Self::Inner;
 }
 
 /// FollowStart wraps a Follow impl in a struct type. This can make certain
 /// programming patterns more ergonomic.
 #[derive(Debug, Default)]
-pub struct FollowStart<T>(PhantomData<T>);
-impl<'a, T: Follow<'a> + 'a> FollowStart<T> {
+pub struct FollowStart<B, T>(PhantomData<(B, T)>);
+impl<B, T> FollowStart<B, T> where B: Buffer, T: Follow<B> {
     #[inline]
     pub fn new() -> Self {
         Self { 0: PhantomData }
     }
     #[inline]
-    pub fn self_follow(&'a self, buf: &'a [u8], loc: usize) -> T::Inner {
+    pub fn self_follow(&self, buf: B, loc: usize) -> T::Inner {
         T::follow(buf, loc)
     }
 }
-impl<'a, T: Follow<'a>> Follow<'a> for FollowStart<T> {
+
+impl<B: Buffer, T: Follow<B>> Follow<B> for FollowStart<B, T> {
     type Inner = T::Inner;
+
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    fn follow(buf: B, loc: usize) -> Self::Inner {
         T::follow(buf, loc)
     }
 }

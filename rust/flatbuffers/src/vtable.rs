@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+use crate::buffer::Buffer;
 use crate::endian_scalar::read_scalar_at;
 use crate::follow::Follow;
 use crate::primitives::*;
@@ -21,29 +22,29 @@ use crate::primitives::*;
 /// VTable encapsulates read-only usage of a vtable. It is only to be used
 /// by generated code.
 #[derive(Debug)]
-pub struct VTable<'a> {
-    buf: &'a [u8],
+pub struct VTable<B> {
+    buf: B,
     loc: usize,
 }
 
-impl<'a> PartialEq for VTable<'a> {
-    fn eq(&self, other: &VTable) -> bool {
+impl<B: Buffer, BRhs: Buffer> PartialEq<VTable<BRhs>> for VTable<B> {
+    fn eq(&self, other: &VTable<BRhs>) -> bool {
         self.as_bytes().eq(other.as_bytes())
     }
 }
 
-impl<'a> VTable<'a> {
-    pub fn init(buf: &'a [u8], loc: usize) -> Self {
+impl<B: Buffer> VTable<B> {
+    pub fn init(buf: B, loc: usize) -> Self {
         VTable { buf, loc }
     }
     pub fn num_fields(&self) -> usize {
         (self.num_bytes() / SIZE_VOFFSET) - 2
     }
     pub fn num_bytes(&self) -> usize {
-        read_scalar_at::<VOffsetT>(self.buf, self.loc) as usize
+        read_scalar_at::<VOffsetT>(&self.buf, self.loc) as usize
     }
     pub fn object_inline_num_bytes(&self) -> usize {
-        let n = read_scalar_at::<VOffsetT>(self.buf, self.loc + SIZE_VOFFSET);
+        let n = read_scalar_at::<VOffsetT>(&self.buf, self.loc + SIZE_VOFFSET);
         n as usize
     }
     pub fn get_field(&self, idx: usize) -> VOffsetT {
@@ -52,7 +53,7 @@ impl<'a> VTable<'a> {
             return 0;
         }
         read_scalar_at::<VOffsetT>(
-            self.buf,
+            &self.buf,
             self.loc + SIZE_VOFFSET + SIZE_VOFFSET + SIZE_VOFFSET * idx,
         )
     }
@@ -61,7 +62,7 @@ impl<'a> VTable<'a> {
         if byte_loc as usize >= self.num_bytes() {
             return 0;
         }
-        read_scalar_at::<VOffsetT>(self.buf, self.loc + byte_loc as usize)
+        read_scalar_at::<VOffsetT>(&self.buf, self.loc + byte_loc as usize)
     }
     pub fn as_bytes(&self) -> &[u8] {
         let len = self.num_bytes();
@@ -83,9 +84,9 @@ pub fn field_offset_to_field_index(field_o: VOffsetT) -> VOffsetT {
     (field_o / (SIZE_VOFFSET as VOffsetT)) - fixed_fields
 }
 
-impl<'a> Follow<'a> for VTable<'a> {
-    type Inner = VTable<'a>;
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+impl<B: Buffer> Follow<B> for VTable<B> {
+    type Inner = VTable<B>;
+    fn follow(buf: B, loc: usize) -> Self::Inner {
         VTable::init(buf, loc)
     }
 }

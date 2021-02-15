@@ -14,27 +14,28 @@
  * limitations under the License.
  */
 
+use crate::buffer::Buffer;
 use crate::follow::Follow;
 use crate::primitives::*;
 use crate::vtable::VTable;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Table<'a> {
-    pub buf: &'a [u8],
+#[derive(Clone, Debug, PartialEq)]
+pub struct Table<B> {
+    pub buf: B,
     pub loc: usize,
 }
 
-impl<'a> Table<'a> {
+impl<B> Table<B> where B: Buffer {
     #[inline]
-    pub fn new(buf: &'a [u8], loc: usize) -> Self {
+    pub fn new(buf: B, loc: usize) -> Self {
         Table { buf, loc }
     }
     #[inline]
-    pub fn vtable(&self) -> VTable<'a> {
-        <BackwardsSOffset<VTable<'a>>>::follow(self.buf, self.loc)
+    pub fn vtable(&self) -> VTable<B> {
+        <BackwardsSOffset<VTable<B>>>::follow(self.buf.shallow_copy(), self.loc)
     }
     #[inline]
-    pub fn get<T: Follow<'a> + 'a>(
+    pub fn get<T: Follow<B>>(
         &self,
         slot_byte_loc: VOffsetT,
         default: Option<T::Inner>,
@@ -43,14 +44,14 @@ impl<'a> Table<'a> {
         if o == 0 {
             return default;
         }
-        Some(<T>::follow(self.buf, self.loc + o))
+        Some(<T>::follow(self.buf.shallow_copy(), self.loc + o))
     }
 }
 
-impl<'a> Follow<'a> for Table<'a> {
-    type Inner = Table<'a>;
+impl<B> Follow<B> for Table<B> where B: Buffer {
+    type Inner = Table<B>;
     #[inline]
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+    fn follow(buf: B, loc: usize) -> Self::Inner {
         Table { buf, loc }
     }
 }

@@ -15,7 +15,7 @@
  */
 
 use crate::{
-    Follow, ForwardsUOffset, InvalidFlatbuffer, SkipSizePrefix, Verifiable, Verifier,
+    Buffer, Follow, ForwardsUOffset, InvalidFlatbuffer, SkipSizePrefix, Verifiable, Verifier,
     VerifierOptions,
 };
 
@@ -23,12 +23,13 @@ use crate::{
 /// Note that verification is an experimental feature and may not be maximally performant or
 /// catch every error (though that is the goal). See the `_unchecked` variants for previous
 /// behavior.
-pub fn root<'buf, T>(data: &'buf [u8]) -> Result<T::Inner, InvalidFlatbuffer>
+pub fn root<T, B>(data: B) -> Result<T::Inner, InvalidFlatbuffer>
 where
-    T: 'buf + Follow<'buf> + Verifiable,
+    B: Buffer,
+    T: Follow<B> + Verifiable,
 {
     let opts = VerifierOptions::default();
-    root_with_opts::<T>(&opts, data)
+    root_with_opts::<T, B>(&opts, data)
 }
 
 #[inline]
@@ -36,16 +37,17 @@ where
 /// Note that verification is an experimental feature and may not be maximally performant or
 /// catch every error (though that is the goal). See the `_unchecked` variants for previous
 /// behavior.
-pub fn root_with_opts<'opts, 'buf, T>(
+pub fn root_with_opts<'opts, T, B>(
     opts: &'opts VerifierOptions,
-    data: &'buf [u8],
+    data: B,
 ) -> Result<T::Inner, InvalidFlatbuffer>
 where
-    T: 'buf + Follow<'buf> + Verifiable,
+    T: Follow<B> + Verifiable,
+    B: Buffer,
 {
-    let mut v = Verifier::new(&opts, data);
+    let mut v = Verifier::new(&opts, &data);
     <ForwardsUOffset<T>>::run_verifier(&mut v, 0)?;
-    Ok(unsafe { root_unchecked::<T>(data) })
+    Ok(unsafe { root_unchecked::<T, B>(data) })
 }
 
 #[inline]
@@ -53,12 +55,13 @@ where
 /// Note that verification is an experimental feature and may not be maximally performant or
 /// catch every error (though that is the goal). See the `_unchecked` variants for previous
 /// behavior.
-pub fn size_prefixed_root<'buf, T>(data: &'buf [u8]) -> Result<T::Inner, InvalidFlatbuffer>
+pub fn size_prefixed_root<T, B>(data: B) -> Result<T::Inner, InvalidFlatbuffer>
 where
-    T: 'buf + Follow<'buf> + Verifiable,
+    T: Follow<B> + Verifiable,
+    B: Buffer,
 {
     let opts = VerifierOptions::default();
-    size_prefixed_root_with_opts::<T>(&opts, data)
+    size_prefixed_root_with_opts::<T, B>(&opts, data)
 }
 
 #[inline]
@@ -66,16 +69,17 @@ where
 /// Note that verification is an experimental feature and may not be maximally performant or
 /// catch every error (though that is the goal). See the `_unchecked` variants for previous
 /// behavior.
-pub fn size_prefixed_root_with_opts<'opts, 'buf, T>(
+pub fn size_prefixed_root_with_opts<'opts, T, B>(
     opts: &'opts VerifierOptions,
-    data: &'buf [u8],
+    data: B,
 ) -> Result<T::Inner, InvalidFlatbuffer>
 where
-    T: 'buf + Follow<'buf> + Verifiable,
+    T: Follow<B> + Verifiable,
+    B: Buffer,
 {
-    let mut v = Verifier::new(&opts, data);
+    let mut v = Verifier::new(&opts, &data);
     <SkipSizePrefix<ForwardsUOffset<T>>>::run_verifier(&mut v, 0)?;
-    Ok(unsafe { size_prefixed_root_unchecked::<T>(data) })
+    Ok(unsafe { size_prefixed_root_unchecked::<T, B>(data) })
 }
 
 #[inline]
@@ -85,9 +89,10 @@ where
 /// `root` functions, this does not validate the flatbuffer before returning the accessor. Users
 /// must trust `data` contains a valid flatbuffer (e.g. b/c it was built by your software). Reading
 /// unchecked buffers may cause panics or even UB.
-pub unsafe fn root_unchecked<'buf, T>(data: &'buf [u8]) -> T::Inner
+pub unsafe fn root_unchecked<T, B>(data: B) -> T::Inner
 where
-    T: Follow<'buf> + 'buf,
+    T: Follow<B>,
+    B: Buffer,
 {
     <ForwardsUOffset<T>>::follow(data, 0)
 }
@@ -99,9 +104,10 @@ where
 /// `root` functions, this does not validate the flatbuffer before returning the accessor. Users
 /// must trust `data` contains a valid flatbuffer (e.g. b/c it was built by your software). Reading
 /// unchecked buffers may cause panics or even UB.
-pub unsafe fn size_prefixed_root_unchecked<'buf, T>(data: &'buf [u8]) -> T::Inner
+pub unsafe fn size_prefixed_root_unchecked<T, B>(data: B) -> T::Inner
 where
-    T: Follow<'buf> + 'buf,
+    T: Follow<B>,
+    B: Buffer,
 {
     <SkipSizePrefix<ForwardsUOffset<T>>>::follow(data, 0)
 }

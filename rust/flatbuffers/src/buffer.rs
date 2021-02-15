@@ -33,11 +33,18 @@ pub trait Buffer: Deref<Target = [u8]> + Sized + Clone {
         self.slice(0..self.len()).unwrap()
     }
 
+    /// Creates a buffer with capacity `size_of::<T>()`.
+    // TODO: Reimplement this once const generics is stable.
+    fn from_static_slice(slice: &'static [u8]) -> Self;
+
     /// Creates an empty instance of a `Buffer`. This is different than `Default` b/c it
     /// guarantees that the buffer instance will have length zero. 
     ///
     /// Most impls shold be able to implement this via `Default`.
-    fn empty() -> Self;
+    #[inline]
+    fn empty() -> Self {
+        Self::from_static_slice(&[])
+    }
 
     /// Based off of the `empty` function, allows override for optimization purposes.
     #[inline]
@@ -57,6 +64,11 @@ impl<'de> Buffer for &'de [u8] {
     #[inline]
     fn slice(&self, range: Range<usize>) -> Option<Self> {
         self.get(range)
+    }
+
+    #[inline]
+    fn from_static_slice(slice: &'static [u8]) -> Self {
+        slice
     }
 
     #[inline]

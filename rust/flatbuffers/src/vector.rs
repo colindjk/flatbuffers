@@ -19,28 +19,29 @@ use std::iter::{DoubleEndedIterator, ExactSizeIterator, FusedIterator};
 use std::marker::PhantomData;
 use std::mem::size_of;
 use std::slice::from_raw_parts;
-use std::str::from_utf8_unchecked;
 
+use crate::buffer::Buffer;
 use crate::endian_scalar::read_scalar_at;
 #[cfg(target_endian = "little")]
 use crate::endian_scalar::EndianScalar;
 use crate::follow::Follow;
 use crate::primitives::*;
 
-pub struct Vector<'a, T: 'a>(&'a [u8], usize, PhantomData<T>);
+pub struct Vector<B, T>(B, usize, PhantomData<T>);
 
-impl<'a, T:'a> Default for Vector<'a, T> {
+impl<B, T> Default for Vector<B, T> where B: Buffer {
     fn default() -> Self {
         // Static, length 0 vector.
         // Note that derived default causes UB due to issues in read_scalar_at /facepalm.
-        Self(&[0; core::mem::size_of::<UOffsetT>()], 0, Default::default())
+        Self(B::from_static_slice(&[0; core::mem::size_of::<UOffsetT>()]), 0, Default::default())
     }
 }
 
-impl<'a, T> Debug for Vector<'a, T>
+impl<B, T> Debug for Vector<B, T>
 where
-    T: 'a + Follow<'a>,
-    <T as Follow<'a>>::Inner: Debug,
+    B: Buffer,
+    T: Follow<B>,
+    <T as Follow<B>>::Inner: Debug,
 {
     fn fmt(&self, f: &mut Formatter) -> Result {
         f.debug_list().entries(self.iter()).finish()
@@ -50,16 +51,17 @@ where
 // We cannot use derive for these two impls, as it would only implement Copy
 // and Clone for `T: Copy` and `T: Clone` respectively. However `Vector<'a, T>`
 // can always be copied, no matter that `T` you have.
-impl<'a, T> Copy for Vector<'a, T> {}
-impl<'a, T> Clone for Vector<'a, T> {
+impl<B, T> Clone for Vector<B, T> where B: Buffer {
     fn clone(&self) -> Self {
-        *self
+        // TODO(colindjk) Is this kosher? (does it deep copy buf?)
+        let Vector(ref buf, size, phan) = *self;
+        Vector(buf.shallow_copy(), size, phan)
     }
 }
 
-impl<'a, T: 'a> Vector<'a, T> {
+impl<B, T> Vector<B, T> where B: Buffer {
     #[inline(always)]
-    pub fn new(buf: &'a [u8], loc: usize) -> Self {
+    pub fn new(buf: B, loc: usize) -> Self {
         Vector {
             0: buf,
             1: loc,
@@ -77,23 +79,23 @@ impl<'a, T: 'a> Vector<'a, T> {
     }
 }
 
-impl<'a, T: Follow<'a> + 'a> Vector<'a, T> {
+impl<B: Buffer, T: Follow<B>> Vector<B, T> {
     #[inline(always)]
     pub fn get(&self, idx: usize) -> T::Inner {
         debug_assert!(idx < read_scalar_at::<u32>(&self.0, self.1) as usize);
         let sz = size_of::<T>();
         debug_assert!(sz > 0);
-        T::follow(self.0, self.1 as usize + SIZE_UOFFSET + sz * idx)
+        T::follow(self.0.shallow_copy(), self.1 as usize + SIZE_UOFFSET + sz * idx)
     }
 
     #[inline(always)]
-    pub fn iter(&self) -> VectorIter<'a, T> {
-        VectorIter::new(*self)
+    pub fn iter(&self) -> VectorIter<B, T> {
+        VectorIter::new(self.clone())
     }
 }
 
 pub trait SafeSliceAccess {}
-impl<'a, T: SafeSliceAccess + 'a> Vector<'a, T> {
+impl<'a, B, T: SafeSliceAccess> Vector<B, T> where B: Buffer {
     pub fn safe_slice(self) -> &'a [T] {
         let buf = self.0;
         let loc = self.1;
@@ -102,6 +104,7 @@ impl<'a, T: SafeSliceAccess + 'a> Vector<'a, T> {
         let len = read_scalar_at::<UOffsetT>(&buf, loc) as usize;
         let data_buf = &buf[loc + SIZE_UOFFSET..loc + SIZE_UOFFSET + len * sz];
         let ptr = data_buf.as_ptr() as *const T;
+        // FIXME(colindjk) Buffer<T> this is very unsafe. Move this logic to Buffer impl.
         let s: &'a [T] = unsafe { from_raw_parts(ptr, len) };
         s
     }
@@ -137,57 +140,62 @@ pub fn follow_cast_ref<'a, T: Sized + 'a>(buf: &'a [u8], loc: usize) -> &'a T {
     unsafe { &*ptr }
 }
 
-impl<'a> Follow<'a> for &'a str {
-    type Inner = &'a str;
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+impl<'a, B> Follow<B> for &'a str where B: 'a + Buffer {
+    type Inner = B::BufferString;
+    fn follow(buf: B, loc: usize) -> Self::Inner {
         let len = read_scalar_at::<UOffsetT>(&buf, loc) as usize;
-        let slice = &buf[loc + SIZE_UOFFSET..loc + SIZE_UOFFSET + len];
-        unsafe { from_utf8_unchecked(slice) }
+        // TODO(colindjk) add unchecked impl for performance purposes. 
+        buf.slice(loc + SIZE_UOFFSET..loc + SIZE_UOFFSET + len)
+            .unwrap_or(B::empty())
+            .buffer_str()
+            .unwrap_or(B::empty_str())
     }
 }
 
 #[cfg(target_endian = "little")]
-fn follow_slice_helper<T>(buf: &[u8], loc: usize) -> &[T] {
+fn follow_slice_helper<'a, B: Buffer + 'a, T>(buf: B, loc: usize) -> &'a [T] {
     let sz = size_of::<T>();
     debug_assert!(sz > 0);
     let len = read_scalar_at::<UOffsetT>(&buf, loc) as usize;
     let data_buf = &buf[loc + SIZE_UOFFSET..loc + SIZE_UOFFSET + len * sz];
     let ptr = data_buf.as_ptr() as *const T;
+    // FIXME(colindjk) Buffer<T> This is very unsafe :(
+    // Need to double check if this is _actually_ unsafe, b/c of the guarantee from Buffer.
     let s: &[T] = unsafe { from_raw_parts(ptr, len) };
     s
 }
 
 /// Implement direct slice access if the host is little-endian.
 #[cfg(target_endian = "little")]
-impl<'a, T: EndianScalar> Follow<'a> for &'a [T] {
+impl<'a, B: Buffer + 'a, T: EndianScalar> Follow<B> for &'a [T] {
     type Inner = &'a [T];
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
-        follow_slice_helper::<T>(buf, loc)
+    fn follow(buf: B, loc: usize) -> Self::Inner {
+        follow_slice_helper::<B, T>(buf, loc)
     }
 }
 
 /// Implement Follow for all possible Vectors that have Follow-able elements.
-impl<'a, T: Follow<'a> + 'a> Follow<'a> for Vector<'a, T> {
-    type Inner = Vector<'a, T>;
-    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {
+impl<B: Buffer, T: Follow<B>> Follow<B> for Vector<B, T> {
+    type Inner = Vector<B, T>;
+    fn follow(buf: B, loc: usize) -> Self::Inner {
         Vector::new(buf, loc)
     }
 }
 
 /// An iterator over a `Vector`.
 #[derive(Debug)]
-pub struct VectorIter<'a, T: 'a> {
-    buf: &'a [u8],
+pub struct VectorIter<B, T> {
+    buf: B,
     loc: usize,
     remaining: usize,
     phantom: PhantomData<T>,
 }
 
-impl<'a, T: 'a> VectorIter<'a, T> {
+impl<B, T> VectorIter<B, T> where B: Buffer {
     #[inline]
-    pub fn new(inner: Vector<'a, T>) -> Self {
+    pub fn new(inner: Vector<B, T>) -> Self {
         VectorIter {
-            buf: inner.0,
+            buf: inner.0.shallow_copy(),
             // inner.1 is the location of the data for the vector.
             // The first SIZE_UOFFSET bytes is the length. We skip
             // that to get to the actual vector content.
@@ -198,11 +206,11 @@ impl<'a, T: 'a> VectorIter<'a, T> {
     }
 }
 
-impl<'a, T: Follow<'a> + 'a> Clone for VectorIter<'a, T> {
+impl<B: Buffer, T: Follow<B>> Clone for VectorIter<B, T> {
     #[inline]
     fn clone(&self) -> Self {
         VectorIter {
-            buf: self.buf,
+            buf: self.buf.shallow_copy(),
             loc: self.loc,
             remaining: self.remaining,
             phantom: self.phantom,
@@ -210,7 +218,7 @@ impl<'a, T: Follow<'a> + 'a> Clone for VectorIter<'a, T> {
     }
 }
 
-impl<'a, T: Follow<'a> + 'a> Iterator for VectorIter<'a, T> {
+impl<B: Buffer, T: Follow<B>> Iterator for VectorIter<B, T> {
     type Item = T::Inner;
 
     #[inline]
@@ -221,7 +229,7 @@ impl<'a, T: Follow<'a> + 'a> Iterator for VectorIter<'a, T> {
         if self.remaining == 0 {
             None
         } else {
-            let result = T::follow(self.buf, self.loc);
+            let result = T::follow(self.buf.shallow_copy(), self.loc);
             self.loc += sz;
             self.remaining -= 1;
             Some(result)
@@ -248,7 +256,7 @@ impl<'a, T: Follow<'a> + 'a> Iterator for VectorIter<'a, T> {
     }
 }
 
-impl<'a, T: Follow<'a> + 'a> DoubleEndedIterator for VectorIter<'a, T> {
+impl<B: Buffer, T: Follow<B>> DoubleEndedIterator for VectorIter<B, T> {
     #[inline]
     fn next_back(&mut self) -> Option<T::Inner> {
         let sz = size_of::<T>();
@@ -258,7 +266,7 @@ impl<'a, T: Follow<'a> + 'a> DoubleEndedIterator for VectorIter<'a, T> {
             None
         } else {
             self.remaining -= 1;
-            Some(T::follow(self.buf, self.loc + sz * self.remaining))
+            Some(T::follow(self.buf.shallow_copy(), self.loc + sz * self.remaining))
         }
     }
 
@@ -269,27 +277,27 @@ impl<'a, T: Follow<'a> + 'a> DoubleEndedIterator for VectorIter<'a, T> {
     }
 }
 
-impl<'a, T: 'a + Follow<'a>> ExactSizeIterator for VectorIter<'a, T> {
+impl<B: Buffer, T: Follow<B>> ExactSizeIterator for VectorIter<B, T> {
     #[inline]
     fn len(&self) -> usize {
         self.remaining
     }
 }
 
-impl<'a, T: 'a + Follow<'a>> FusedIterator for VectorIter<'a, T> {}
+impl<B: Buffer, T: Follow<B>> FusedIterator for VectorIter<B, T> {}
 
-impl<'a, T: Follow<'a> + 'a> IntoIterator for Vector<'a, T> {
+impl<B: Buffer, T: Follow<B>> IntoIterator for Vector<B, T> {
     type Item = T::Inner;
-    type IntoIter = VectorIter<'a, T>;
+    type IntoIter = VectorIter<B, T>;
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
 }
 
-impl<'a, 'b, T: Follow<'a> + 'a> IntoIterator for &'b Vector<'a, T> {
+impl<'a, B: Buffer, T: Follow<B>> IntoIterator for &'a Vector<B, T> {
     type Item = T::Inner;
-    type IntoIter = VectorIter<'a, T>;
+    type IntoIter = VectorIter<B, T>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }

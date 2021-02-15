@@ -1,3 +1,4 @@
+use crate::buffer::Buffer;
 use crate::follow::Follow;
 use crate::{ForwardsUOffset, SOffsetT, SkipSizePrefix, UOffsetT, VOffsetT, Vector, SIZE_UOFFSET};
 use std::ops::Range;
@@ -396,6 +397,7 @@ impl<'ver, 'opts, 'buf> TableVerifier<'ver, 'opts, 'buf> {
             Ok(self)
         }
     }
+
     #[inline]
     /// Union verification is complicated. The schemas passes this function the metadata of the
     /// union's key (discriminant) and value fields, and a callback. The function verifies and
@@ -410,9 +412,9 @@ impl<'ver, 'opts, 'buf> TableVerifier<'ver, 'opts, 'buf> {
         verify_union: UnionVerifier,
     ) -> Result<Self>
     where
-        Key: Follow<'buf> + Verifiable,
+        Key: Follow<&'buf [u8]> + Verifiable,
         UnionVerifier:
-            (std::ops::FnOnce(<Key as Follow<'buf>>::Inner, &mut Verifier, usize) -> Result<()>),
+            (std::ops::FnOnce(<Key as Follow<&'buf [u8]>>::Inner, &mut Verifier, usize) -> Result<()>),
         // NOTE: <Key as Follow<'buf>>::Inner == Key
     {
         // TODO(caspern): how to trace vtable errors?
@@ -439,6 +441,7 @@ impl<'ver, 'opts, 'buf> TableVerifier<'ver, 'opts, 'buf> {
             _ => InvalidFlatbuffer::new_inconsistent_union(key_field_name, val_field_name),
         }
     }
+
     pub fn finish(self) -> &'ver mut Verifier<'opts, 'buf> {
         self.verifier.depth -= 1;
         self.verifier
@@ -487,7 +490,7 @@ impl SimpleToVerifyInSlice for i64 {}
 impl SimpleToVerifyInSlice for u64 {}
 impl SimpleToVerifyInSlice for f64 {}
 
-impl<T: SimpleToVerifyInSlice> Verifiable for Vector<'_, T> {
+impl<T: SimpleToVerifyInSlice, B: Buffer> Verifiable for Vector<B, T> {
     fn run_verifier(v: &mut Verifier, pos: usize) -> Result<()> {
         verify_vector_range::<T>(v, pos)?;
         Ok(())
@@ -501,7 +504,7 @@ impl<T: Verifiable> Verifiable for SkipSizePrefix<T> {
     }
 }
 
-impl<T: Verifiable> Verifiable for Vector<'_, ForwardsUOffset<T>> {
+impl<T: Verifiable, B: Buffer> Verifiable for Vector<B, ForwardsUOffset<T>> {
     #[inline]
     fn run_verifier(v: &mut Verifier, pos: usize) -> Result<()> {
         let range = verify_vector_range::<ForwardsUOffset<T>>(v, pos)?;
