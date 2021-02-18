@@ -16,19 +16,18 @@
 
 use std::ptr::write_bytes;
 
-use crate::BufferMut;
 use crate::endian_scalar::{emplace_scalar, read_scalar_at};
 use crate::primitives::*;
 
 /// VTableWriter compartmentalizes actions needed to create a vtable.
 #[derive(Debug)]
-pub struct VTableWriter<B> {
-    buf: B
+pub struct VTableWriter<'a> {
+    buf: &'a mut [u8],
 }
 
-impl<B: BufferMut> VTableWriter<B> {
+impl<'a> VTableWriter<'a> {
     #[inline(always)]
-    pub fn init(buf: B) -> Self {
+    pub fn init(buf: &'a mut [u8]) -> Self {
         VTableWriter { buf }
     }
 

@@ -88,21 +88,3 @@ impl<'de> Buffer for &'de [u8] {
     }
 }
 
-/// Mutable version of a buffer. Allows for mutations of the buffers itself.
-///
-/// TODO(colindjk) How can this be done safely?
-pub trait BufferMut: DerefMut<Target = [u8]> + Sized {
-    type Buffer: Buffer;
-
-    /// Freezes the buffer so that it is no longer mutable.
-    fn freeze(self) -> Self::Buffer;
-}
-
-impl<'de> BufferMut for &'de mut [u8] {
-    type Buffer = &'de [u8];
-
-    fn freeze(self) -> Self::Buffer {
-        self
-    }
-}
-
