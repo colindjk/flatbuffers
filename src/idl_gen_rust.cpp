@@ -570,7 +570,7 @@ class RustGenerator : public BaseGenerator {
       case ftTable: {
         return WrapInNameSpace(type.struct_def->defined_namespace,
                                type.struct_def->name) +
-               "<'a>";
+               "<B: flatbuffers::buffer::Buffer>";
       }
       default: {
         return WrapInNameSpace(type.struct_def->defined_namespace,
@@ -715,10 +715,10 @@ class RustGenerator : public BaseGenerator {
     }
 
     // Generate Follow and Push so we can serialize and stuff.
-    code_ += "impl<'a> flatbuffers::Follow<'a> for {{ENUM_NAME}} {";
+    code_ += "impl<B: flexbuffers::buffer::Buffer> flatbuffers::Follow<B> for {{ENUM_NAME}} {";
     code_ += "  type Inner = Self;";
     code_ += "  #[inline]";
-    code_ += "  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {";
+    code_ += "  fn follow(buf: B, loc: usize) -> Self::Inner {";
     code_ +=
         "    let b = flatbuffers::read_scalar_at::<{{BASE_TYPE}}>(buf,"
         " loc);";
@@ -751,7 +751,7 @@ class RustGenerator : public BaseGenerator {
     code_ += "";
 
     // Generate verifier - deferring to the base type.
-    code_ += "impl<'a> flatbuffers::Verifiable for {{ENUM_NAME}} {";
+    code_ += "impl<B: flatbuffers::buffer::Buffer> flatbuffers::Verifiable for {{ENUM_NAME}} {";
     code_ += "  #[inline]";
     code_ += "  fn run_verifier(";
     code_ += "    v: &mut flatbuffers::Verifier, pos: usize";
@@ -1445,19 +1445,19 @@ class RustGenerator : public BaseGenerator {
 
     GenComment(struct_def.doc_comment);
 
-    code_ += "pub struct {{STRUCT_NAME}}<'a> {";
-    code_ += "  pub _tab: flatbuffers::Table<'a>,";
+    code_ += "pub struct {{STRUCT_NAME}}<B: flatbuffers::buffer::Buffer> {";
+    code_ += "  pub _tab: flatbuffers::Table<B>,";
     code_ += "}";
     code_ += "";
-    code_ += "impl<'a> flatbuffers::Follow<'a> for {{STRUCT_NAME}}<'a> {";
-    code_ += "    type Inner = {{STRUCT_NAME}}<'a>;";
+    code_ += "impl<B: flatbuffers::buffer::Buffer> flatbuffers::Follow<B> for {{STRUCT_NAME}}<B> {";
+    code_ += "    type Inner = {{STRUCT_NAME}}<B>;";
     code_ += "    #[inline]";
-    code_ += "    fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {";
+    code_ += "    fn follow(buf: B, loc: usize) -> Self::Inner {";
     code_ += "        Self { _tab: flatbuffers::Table { buf, loc } }";
     code_ += "    }";
     code_ += "}";
     code_ += "";
-    code_ += "impl<'a> {{STRUCT_NAME}}<'a> {";
+    code_ += "impl<B: flexbuffers::buffer::Buffer> {{STRUCT_NAME}}<B> {";
 
     if (parser_.opts.generate_name_strings) {
       GenFullyQualifiedNameGetter(struct_def, struct_def.name);
@@ -1465,7 +1465,7 @@ class RustGenerator : public BaseGenerator {
 
     code_ += "    #[inline]";
     code_ +=
-        "    pub fn init_from_table(table: flatbuffers::Table<'a>) -> "
+        "    pub fn init_from_table(table: flatbuffers::Table<B>) -> "
         "Self {";
     code_ += "        {{STRUCT_NAME}} { _tab: table }";
     code_ += "    }";
@@ -2112,7 +2112,7 @@ class RustGenerator : public BaseGenerator {
         "#[deprecated(since=\"2.0.0\", "
         "note=\"Deprecated in favor of `root_as...` methods.\")]";
     code_ +=
-        "pub fn get_root_as_{{STRUCT_NAME_SNAKECASE}}<'a>(buf: &'a [u8])"
+        "pub fn get_root_as_{{STRUCT_NAME_SNAKECASE}}<'a>(buf: B)"
         " -> {{STRUCT_NAME}}<'a> {";
     code_ +=
         "  unsafe { flatbuffers::root_unchecked::<{{STRUCT_NAME}}"
@@ -2126,7 +2126,7 @@ class RustGenerator : public BaseGenerator {
         "note=\"Deprecated in favor of `root_as...` methods.\")]";
     code_ +=
         "pub fn get_size_prefixed_root_as_{{STRUCT_NAME_SNAKECASE}}"
-        "<'a>(buf: &'a [u8]) -> {{STRUCT_NAME}}<'a> {";
+        "<'a>(buf: B) -> {{STRUCT_NAME}}<'a> {";
     code_ +=
         "  unsafe { flatbuffers::size_prefixed_root_unchecked::<{{STRUCT_NAME}}"
         "<'a>>(buf) }";
@@ -2141,7 +2141,7 @@ class RustGenerator : public BaseGenerator {
     code_ += "/// previous, unchecked, behavior use";
     code_ += "/// `root_as_{{STRUCT_NAME_SNAKECASE}}_unchecked`.";
     code_ +=
-        "pub fn root_as_{{STRUCT_NAME_SNAKECASE}}(buf: &[u8]) "
+        "pub fn root_as_{{STRUCT_NAME_SNAKECASE}}(buf: B) "
         "-> Result<{{STRUCT_NAME}}, flatbuffers::InvalidFlatbuffer> {";
     code_ += "  flatbuffers::root::<{{STRUCT_NAME}}>(buf)";
     code_ += "}";
@@ -2154,7 +2154,7 @@ class RustGenerator : public BaseGenerator {
     code_ += "/// `size_prefixed_root_as_{{STRUCT_NAME_SNAKECASE}}_unchecked`.";
     code_ +=
         "pub fn size_prefixed_root_as_{{STRUCT_NAME_SNAKECASE}}"
-        "(buf: &[u8]) -> Result<{{STRUCT_NAME}}, "
+        "(buf: B) -> Result<{{STRUCT_NAME}}, "
         "flatbuffers::InvalidFlatbuffer> {";
     code_ += "  flatbuffers::size_prefixed_root::<{{STRUCT_NAME}}>(buf)";
     code_ += "}";
@@ -2168,7 +2168,7 @@ class RustGenerator : public BaseGenerator {
     code_ += "/// `root_as_{{STRUCT_NAME_SNAKECASE}}_unchecked`.";
     code_ += "pub fn root_as_{{STRUCT_NAME_SNAKECASE}}_with_opts<'b, 'o>(";
     code_ += "  opts: &'o flatbuffers::VerifierOptions,";
-    code_ += "  buf: &'b [u8],";
+    code_ += "  buf: B,";
     code_ +=
         ") -> Result<{{STRUCT_NAME}}<'b>, flatbuffers::InvalidFlatbuffer>"
         " {";
@@ -2185,7 +2185,7 @@ class RustGenerator : public BaseGenerator {
         "pub fn size_prefixed_root_as_{{STRUCT_NAME_SNAKECASE}}_with_opts"
         "<'b, 'o>(";
     code_ += "  opts: &'o flatbuffers::VerifierOptions,";
-    code_ += "  buf: &'b [u8],";
+    code_ += "  buf: B,";
     code_ +=
         ") -> Result<{{STRUCT_NAME}}<'b>, flatbuffers::InvalidFlatbuffer>"
         " {";
@@ -2204,7 +2204,7 @@ class RustGenerator : public BaseGenerator {
         " `{{STRUCT_NAME}}`.";
     code_ +=
         "pub unsafe fn root_as_{{STRUCT_NAME_SNAKECASE}}_unchecked"
-        "(buf: &[u8]) -> {{STRUCT_NAME}} {";
+        "(buf: B) -> {{STRUCT_NAME}} {";
     code_ += "  flatbuffers::root_unchecked::<{{STRUCT_NAME}}>(buf)";
     code_ += "}";
     code_ += "#[inline]";
@@ -2217,7 +2217,7 @@ class RustGenerator : public BaseGenerator {
         " size prefixed `{{STRUCT_NAME}}`.";
     code_ +=
         "pub unsafe fn size_prefixed_root_as_{{STRUCT_NAME_SNAKECASE}}"
-        "_unchecked(buf: &[u8]) -> {{STRUCT_NAME}} {";
+        "_unchecked(buf: B) -> {{STRUCT_NAME}} {";
     code_ +=
         "  flatbuffers::size_prefixed_root_unchecked::<{{STRUCT_NAME}}>"
         "(buf)";
@@ -2233,14 +2233,14 @@ class RustGenerator : public BaseGenerator {
       // Check if a buffer has the identifier.
       code_ += "#[inline]";
       code_ += "pub fn {{STRUCT_NAME_SNAKECASE}}_buffer_has_identifier\\";
-      code_ += "(buf: &[u8]) -> bool {";
+      code_ += "(buf: B) -> bool {";
       code_ += "  flatbuffers::buffer_has_identifier(buf, \\";
       code_ += "{{STRUCT_NAME_CAPS}}_IDENTIFIER, false)";
       code_ += "}";
       code_ += "";
       code_ += "#[inline]";
       code_ += "pub fn {{STRUCT_NAME_SNAKECASE}}_size_prefixed\\";
-      code_ += "_buffer_has_identifier(buf: &[u8]) -> bool {";
+      code_ += "_buffer_has_identifier(buf: B) -> bool {";
       code_ += "  flatbuffers::buffer_has_identifier(buf, \\";
       code_ += "{{STRUCT_NAME_CAPS}}_IDENTIFIER, true)";
       code_ += "}";
@@ -2365,14 +2365,14 @@ class RustGenerator : public BaseGenerator {
     code_ += "impl<'a> flatbuffers::Follow<'a> for {{STRUCT_NAME}} {";
     code_ += "  type Inner = &'a {{STRUCT_NAME}};";
     code_ += "  #[inline]";
-    code_ += "  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {";
+    code_ += "  fn follow(buf: B, loc: usize) -> Self::Inner {";
     code_ += "    <&'a {{STRUCT_NAME}}>::follow(buf, loc)";
     code_ += "  }";
     code_ += "}";
     code_ += "impl<'a> flatbuffers::Follow<'a> for &'a {{STRUCT_NAME}} {";
     code_ += "  type Inner = &'a {{STRUCT_NAME}};";
     code_ += "  #[inline]";
-    code_ += "  fn follow(buf: &'a [u8], loc: usize) -> Self::Inner {";
+    code_ += "  fn follow(buf: B, loc: usize) -> Self::Inner {";
     code_ += "    flatbuffers::follow_cast_ref::<{{STRUCT_NAME}}>(buf, loc)";
     code_ += "  }";
     code_ += "}";
